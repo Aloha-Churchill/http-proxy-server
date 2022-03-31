@@ -130,6 +130,33 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
         return -1;		
 	}
 
+    // check if request is in blocklist
+    FILE* blocklist_fp;
+    char* entry = NULL;
+    size_t len = 0;
+    ssize_t read;
+
+    printf("Checking blocklist\n");
+
+    blocklist_fp = fopen("blocklist", "r");
+    if(blocklist_fp == NULL){
+        printf("No such blocklist file exits\n");
+        return 0;
+    }
+
+    while((read = getline(&entry, &len, blocklist_fp)) != -1){
+        printf("Blocklist entry: %s\n", entry);
+        printf("Parsed commands entry: %s\n", parsed_commands[4]);
+
+        if(strncmp(entry, parsed_commands[4], strlen(parsed_commands[4])-1) == 0){
+            printf("RECIEVED BLOCKED COMMAND\n");
+            dprintf(fd, "HTTP/1.1 403 Forbidden\r\n");
+            dprintf(fd, "Content-Type: \r\n");
+            dprintf(fd, "Content-Length: \r\n\r\n");
+            return -1;	
+        }
+
+    }
 
     return 0;
 }

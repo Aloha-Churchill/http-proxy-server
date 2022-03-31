@@ -37,7 +37,6 @@ void handle_client(int fd, int port) {
         //if user enters /, then send index.html
 
         //create a second socket and send request to host_ip
-        //check if server hostname was found using getaddrinfo
         printf("Host to forward to: %s\n", parsed_commands[4]);
         struct addrinfo server_hints;
         struct addrinfo *res;
@@ -46,13 +45,9 @@ void handle_client(int fd, int port) {
         memset(&server_hints, 0, sizeof(struct addrinfo));
         server_hints.ai_family = AF_UNSPEC;
         server_hints.ai_socktype = SOCK_STREAM;
-        //server_hints.ai_flags = AI_PASSIVE;
-
-        // checking if hostname exists
-        //int ret = getaddrinfo(parsed_commands[4], NULL, &server_hints, &res);
-        int ret = getaddrinfo(parsed_commands[4], "80", &server_hints, &res);
         
-        //return values was zero
+        //check if server hostname was found using getaddrinfo
+        int ret = getaddrinfo(parsed_commands[4], "80", &server_hints, &res);
 
         // if host name is invalid
         if(ret != 0){
@@ -105,11 +100,10 @@ void handle_client(int fd, int port) {
             if(recv_res < 0){
                 error("Recieve from host failed\n");
             }
-            //while(recv_res != 0){
+
             if(send(fd, recvbuf, REQUEST_SIZE, 0) < 0){
                 error("Send to client failed\n");
             }
-            //}
 
             // then we want to send what we just recieved in the proxy to the original client
             freeaddrinfo(res);
