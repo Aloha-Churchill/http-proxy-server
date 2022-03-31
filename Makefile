@@ -1,11 +1,11 @@
 COMPILER=gcc
 FLAGS=-g -Wall
 
-run: server
-	./server 8888
+run: proxy
+	./proxy 8888
 
-all: server.c
-	$(COMPILER) $(FLAGS) -o server server.c
+all: proxy.c
+	$(COMPILER) $(FLAGS) -o proxy proxy.c
 
 clean:
-	rm server
+	rm proxy

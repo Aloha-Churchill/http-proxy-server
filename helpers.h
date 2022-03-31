@@ -22,7 +22,6 @@
 // global server file descriptor variable
 int server_fd;
 
-
 /*
 Wrapper function for error messages
 */
@@ -89,7 +88,7 @@ int parse_commands(char* recvbuf, char* parsed_commands[]){
 	int num_input_strings = 0;
 
 	while(element != NULL){
-		if(num_input_strings < 3){
+		if(num_input_strings < 5){
 			parsed_commands[num_input_strings] = element;
 		}
 		element = strtok(NULL, delimiters);
@@ -103,6 +102,8 @@ int parse_commands(char* recvbuf, char* parsed_commands[]){
 /*
 Checks if user entered in valid request. Default to HTTP/1.1 upon malformed request.
 dprintf writes to fd
+
+We also need to check if hostname is ok, use getaddrinfo and it should return an IP addr, if not then this is not correctly implemented
 */
 int check_request(int fd, char* parsed_commands[], int num_input_strings){
     // malformed request, user did not enter in enough commands
@@ -128,6 +129,8 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
         dprintf(fd, "Content-Length: \r\n\r\n");
         return -1;		
 	}
+
+
     return 0;
 }
 
