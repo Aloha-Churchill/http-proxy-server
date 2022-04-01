@@ -1,29 +1,51 @@
 /*
-Simple HTTP server implemented with fork()
+HTTP proxy server
+
+Questions:
+- Testing when browser defaults to https vs http
+- Do we only want to cache plain text? 
 */
 
 #include "helpers.h"
 
+
+void transform_cached_name(char* original_name, char* transformed_name){
+
+    strcpy(transformed_name, "cached/");
+
+    for(int i=0; i<strlen(original_name); i++){
+        if(original_name[i] == '/'){
+            transformed_name[i+7] = '\\';
+        }
+        else{
+            transformed_name[i+7] = original_name[i];
+        }
+    }
+
+}
+
+
 /*
 Function to send HTTP response to client.
 */
-void handle_client(int fd, int port) {
+void handle_client(int fd, int port, int timeout) {
     char http_buf[REQUEST_SIZE];
     bzero(http_buf, REQUEST_SIZE);
-
-    char preserved_http_buf[REQUEST_SIZE];
-    bzero(preserved_http_buf, REQUEST_SIZE);
 
     //recv returns -1 on error, 0 if closed connection, or number of bytes read into buffer
     if(recv(fd, http_buf, REQUEST_SIZE, 0) < 0){
         error("Recieve failed\n");
     }
 
+    // the http_buf gets modified by parsed commands, so need preserved_buffer
+    char preserved_http_buf[REQUEST_SIZE];
+    bzero(preserved_http_buf, REQUEST_SIZE);
+
     memcpy(preserved_http_buf, http_buf, REQUEST_SIZE);
     
-
     printf("Recieved: %s\n", http_buf);
-    // parse request into 4 parts [[method],[url],[http version],[requested host]]
+
+    // parse request into 4 parts [[method],[url],[http version],[Host:],[requested host]]
     char* parsed_commands[5];
     int num_parsed = parse_commands(http_buf, parsed_commands);
 
@@ -34,9 +56,6 @@ void handle_client(int fd, int port) {
     // check if request is okay, if so, then we check if file is valid
     if(check_request(fd, parsed_commands, num_parsed) != -1){
 
-        //if user enters /, then send index.html
-
-        //create a second socket and send request to host_ip
         printf("Host to forward to: %s\n", parsed_commands[4]);
         struct addrinfo server_hints;
         struct addrinfo *res;
@@ -57,58 +76,138 @@ void handle_client(int fd, int port) {
             dprintf(fd, "Content-Length: \r\n\r\n");
         }
 
-        // if host name is valid, then open socket  for communicating from proxy to host
+        // if host name is valid
         else{
-            printf("Address was valid\n");
-            // creating socket for host
-            int sockfd_host = -1;
 
-            sockfd_host = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-            // sockfd_host = 3
-            if(sockfd_host == -1){
-                error("Could not create socket");
+            // if we already have requested page in cache
+            FILE* cache_fp;
+            char path[PATHNAME_SIZE];
+            bzero(path, PATHNAME_SIZE);
+
+            cache_fp = popen("ls cached/", "r");
+            if (cache_fp == NULL){
+                error("Could not open cache\n");
             }
-            printf("Created Socket\n");
 
-            //int socket_option = 1;
-            //if(setsockopt(sockfd_host, SOL_SOCKET, SO_REUSEADDR, &socket_option, sizeof(socket_option)) == -1){
-            //    error("Could not set socket option\n");
-            //}
-            //printf("Set Socket Option\n");
-            // could not connect to sock host.
-            // using connect instead of listen because we know who client and server are
-            if(connect(sockfd_host, res->ai_addr, res->ai_addrlen) == -1){
+            char transformed_name[PATHNAME_SIZE];
+            bzero(transformed_name, PATHNAME_SIZE);
+
+            transform_cached_name(parsed_commands[1], transformed_name);
+            printf("TRANSFORMED NAME: %s\n", transformed_name);
+
+            int found_match = 0;
+            // loop through cached directory to find hit, delete files that are expired
+            while(fgets(path, PATHNAME_SIZE, cache_fp) != NULL){
+                // if there is a cache hit
+
+                // we also want to STORE HTTP Header response
+                struct stat last_accessed;
+                stat(path, &last_accessed);
+                printf("REQUESTED NAME: %s \t\t PATH NAME: %s\n", transformed_name + 7, path);
+                //printf("File access time %s", ctime(&last_accessed.st_atime));
+                // now we actually need to read and then send file
+                path[strcspn(path, "\n")] = 0;
+                if(strcmp(path, transformed_name + 7) == 0){
+                    // return the cached file and update timestamp
+                    printf("FOUND MATCH IN CACHE\n");
+                    found_match = 1;
+
+                    // first send HTTP 200 OK Header
+
+                    // we actually already have a function for this
+                    FILE* send_cached_fp;
+                    send_cached_fp = fopen(transformed_name, "r");
+                    
+                    fseek(send_cached_fp, 0L, SEEK_END);
+                    int filesize = ftell(send_cached_fp);
+                    fseek(send_cached_fp, 0L, SEEK_SET);
+
+                    int num_sends = filesize/FILE_SIZE_PART + ((filesize % FILE_SIZE_PART) != 0); 
+                    char file_contents[FILE_SIZE_PART];
+
+                    for(int i=0; i < num_sends; i++){
+                        bzero(file_contents, FILE_SIZE_PART);
+                        int n = fread(file_contents, FILE_SIZE_PART, 1, send_cached_fp);
+                        if(n < 0){
+                            error("Error on reading file into buffer\n");
+                        }
+                        // just send remaining bytes
+                        if(i == num_sends-1){
+                            send(fd, file_contents, filesize % REQUEST_SIZE, 0);
+                        }
+                        else{
+                            send(fd, file_contents, REQUEST_SIZE, 0);
+                        } 
+                    }
+
+                    fclose(send_cached_fp);
+
+
+                }
+            }
+            fclose(cache_fp);
+
+            if(found_match == 0){
+
+                printf("DID NOT FIND NAME IN CACHE, SENDING FILE AND CREATING CACHE ENTRY\n");
+                // creating socket for host
+                int sockfd_host = -1;
+
+                sockfd_host = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+                // sockfd_host = 3
+                if(sockfd_host == -1){
+                    error("Could not create socket");
+                }
+                printf("Created Socket\n");
+
+
+                if(connect(sockfd_host, res->ai_addr, res->ai_addrlen) == -1){
+                    close(sockfd_host);
+                    error("Could not connect to host\n");
+                }
+
+                printf("Connected\n");
+
+                // need to also put in way to make sure it has sent correct number of bytes
+                printf("HTTP Sending: %s\n", preserved_http_buf);
+                if(send(sockfd_host, preserved_http_buf, REQUEST_SIZE, 0) < 0){
+                    error("Send to host failed\n");
+                }
+                
+                char recvbuf[REQUEST_SIZE];
+                bzero(recvbuf, REQUEST_SIZE);
+
+                // creating file for cache
+                FILE* create_fp;
+
+                create_fp = fopen(transformed_name, "w");
+
+                if(create_fp == NULL){
+                    error("Could not create file to write cached document to\n");
+                }
+
+                //recv returns -1 on error, 0 if closed connection, or number of bytes read into buffer
+                int recv_res = recv(sockfd_host, recvbuf, REQUEST_SIZE, 0) < 0;
+                printf("RECIEVED FROM HOST result: %s\n", recvbuf);
+                if(recv_res < 0){
+                    error("Recieve from host failed\n");
+                }
+
+                if(send(fd, recvbuf, REQUEST_SIZE, 0) < 0){
+                    error("Send to client failed\n");
+                }
+
+                if(fwrite(recvbuf, REQUEST_SIZE, 1, create_fp) < 0){
+                    error("Could not write to cached file\n");
+                }
+
+                
+                fclose(create_fp);
+                // then we want to send what we just recieved in the proxy to the original client
+                freeaddrinfo(res);
                 close(sockfd_host);
-                error("Could not connect to host\n");
-            }
-            
-
-            printf("Connected\n");
-
-            // need to also put in way to make sure it has sent correct number of bytes
-            printf("HTTP Sending: %s\n", preserved_http_buf);
-            if(send(sockfd_host, preserved_http_buf, REQUEST_SIZE, 0) < 0){
-                error("Send to host failed\n");
-            }
-            
-            char recvbuf[REQUEST_SIZE];
-            bzero(recvbuf, REQUEST_SIZE);
-
-            //recv returns -1 on error, 0 if closed connection, or number of bytes read into buffer
-            int recv_res = recv(sockfd_host, recvbuf, REQUEST_SIZE, 0) < 0;
-            printf("RECIEVED FROM HOST result: %s\n", recvbuf);
-            if(recv_res < 0){
-                error("Recieve from host failed\n");
             }
 
-            if(send(fd, recvbuf, REQUEST_SIZE, 0) < 0){
-                error("Send to client failed\n");
-            }
-
-            // then we want to send what we just recieved in the proxy to the original client
-            freeaddrinfo(res);
-            close(sockfd_host);
-            
         }
 
     }
@@ -119,7 +218,7 @@ void handle_client(int fd, int port) {
 Function to initialize variables, start server, and accept client connections
 Code modified from Beej's Guide to Network Programming
 */
-void start_server(int *proxy_socket, int port) {
+void start_server(int *proxy_socket, int port, int timeout) {
 
     // get socket file descriptor
     *proxy_socket = socket(PF_INET, SOCK_STREAM, 0);
@@ -179,7 +278,7 @@ void start_server(int *proxy_socket, int port) {
             close(*proxy_socket);
             
             // function to send response
-            handle_client(client_socket, port);
+            handle_client(client_socket, port, timeout);
             close(client_socket);
             exit(0);
         }
@@ -195,12 +294,14 @@ void start_server(int *proxy_socket, int port) {
 
 int main(int argc, char **argv) {
 
-    if(argc !=2){
+    if(argc !=3){
         error("Incorrect number of arguments\t Correct format: ./server [PORTNO]\n");
     }
     int port = atoi(argv[1]);
+    int timeout = atoi(argv[2]);
 
     // if user types Ctrl+C, server shuts down
     signal(SIGINT, exit_handler);
-    start_server(&server_fd, port);
+    start_server(&server_fd, port, timeout);
+
 }

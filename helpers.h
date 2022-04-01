@@ -13,6 +13,8 @@
 #include <string.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <sys/stat.h>
+#include <time.h>
 
 #define REQUEST_SIZE 4000 // handle first 4000 bytes of request
 #define PATHNAME_SIZE 256
@@ -158,6 +160,8 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
 
     }
 
+    fclose(blocklist_fp);
+
     return 0;
 }
 
@@ -224,71 +228,13 @@ Sends the file.
 2. Gets file type
 3. Sends file in increments
 */
+
+/*
 int send_file(int fd, char* pathname, char* http_version){
 
     // get file length
 	int file_length;
 	FILE* fp;
-    fp = fopen(pathname, "r");
-	fseek(fp, 0L, SEEK_END);
-	file_length = ftell(fp);
-	fseek(fp, 0L, SEEK_SET);
-
-	char number_string[10];
-	bzero(number_string, 10);
-	sprintf(number_string, "%d", file_length);
-
-    char content_length[PATHNAME_SIZE];
-    bzero(content_length, PATHNAME_SIZE);
-    strcpy(content_length, "Content-Length: ");
-	strcat(content_length, number_string);
-	strcat(content_length, "\r\n\r");
-
-    // get content type
-    char content_type[PATHNAME_SIZE];
-    bzero(content_type, PATHNAME_SIZE);
-	const char delimiters[] = ".";
-	char* element = strtok(strrev(pathname), delimiters);
-	element = strrev(element);
-
-	if(element == NULL){
-		error("Not a valid file format\n");
-	}
-	else{
-		if(strcmp(element, "html") == 0){
-			strcpy(content_type, "Content-Type: text/html\r");
-		}
-		else if(strcmp(element, "txt") == 0){
-			strcpy(content_type, "Content-Type: text/plain\r");	
-		}
-		else if(strcmp(element, "png") == 0){
-			strcpy(content_type, "Content-Type: image/png\r");
-		}
-		else if(strcmp(element, "gif") == 0){
-			strcpy(content_type, "Content-Type: image/gif\r");
-		}
-		else if(strcmp(element, "jpg") == 0){
-			strcpy(content_type, "Content-Type: image/jpg\r");
-		}
-		else if(strcmp(element, "css") == 0){
-			strcpy(content_type, "Content-Type: text/css\r");
-		}
-		else if(strcmp(element, "js") == 0){
-			strcpy(content_type, "Content-Type: application/javascript\r");
-		}
-        else{
-            strcpy(content_type, "Content-Type: unsupported\r");
-        }
-	}
-
-    char status_header[PATHNAME_SIZE];
-    bzero(status_header, PATHNAME_SIZE);
-    strcpy(status_header, http_version);
-    strcat(status_header, " 200 OK\r");
-
-    dprintf(fd, "%s\n", status_header);
-    dprintf(fd, "%s\n", content_type);
-    dprintf(fd, "%s\n", content_length);
 
     fseek(fp, 0, SEEK_SET);
 
@@ -314,3 +260,4 @@ int send_file(int fd, char* pathname, char* http_version){
     fclose(fp);
     return 0;
 }
+*/
