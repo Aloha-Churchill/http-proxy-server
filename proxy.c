@@ -102,11 +102,23 @@ void handle_client(int fd, int port, int timeout) {
 
                 // we also want to STORE HTTP Header response
                 struct stat last_accessed;
-                stat(path, &last_accessed);
-                printf("REQUESTED NAME: %s \t\t PATH NAME: %s\n", transformed_name + 7, path);
-                //printf("File access time %s", ctime(&last_accessed.st_atime));
-                // now we actually need to read and then send file
                 path[strcspn(path, "\n")] = 0;
+                stat(transformed_name, &last_accessed);
+                printf("REQUESTED NAME: %s \t\t PATH NAME: %s\n", transformed_name + 7, path);
+                time_t time_last_accessed = mktime(localtime(&last_accessed.st_atime));
+                time_t current_time = time(NULL);
+
+                int time_difference = current_time-time_last_accessed;
+                printf("TIME DIFFERENCE IS: %d\n", time_difference);
+                if(time_difference > timeout){
+                    printf("THIS FILE IS EXPIRED\n");
+                    // we then want to remove the file from cached
+                    if(remove(transformed_name) != 0){
+                        error("Could not remove expired file from cache\n");
+                    }
+
+                }
+                // now we actually need to read and then send file
                 if(strcmp(path, transformed_name + 7) == 0){
                     // return the cached file and update timestamp
                     printf("FOUND MATCH IN CACHE\n");
