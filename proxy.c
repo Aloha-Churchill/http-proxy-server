@@ -3,7 +3,10 @@ HTTP proxy server
 
 Questions:
 - Testing when browser defaults to https vs http
-- Do we only want to cache plain text? 
+- Do we only want to cache plain text?
+
+Testing website
+http://www.testingmcafeesites.com/index.html
 */
 
 #include "helpers.h"
@@ -96,66 +99,69 @@ void handle_client(int fd, int port, int timeout) {
             printf("TRANSFORMED NAME: %s\n", transformed_name);
 
             int found_match = 0;
+
             // loop through cached directory to find hit, delete files that are expired
             while(fgets(path, PATHNAME_SIZE, cache_fp) != NULL){
                 // if there is a cache hit
 
-                // we also want to STORE HTTP Header response
-                struct stat last_accessed;
-                path[strcspn(path, "\n")] = 0;
-                stat(transformed_name, &last_accessed);
                 printf("REQUESTED NAME: %s \t\t PATH NAME: %s\n", transformed_name + 7, path);
-                time_t time_last_accessed = mktime(localtime(&last_accessed.st_atime));
-                time_t current_time = time(NULL);
+                path[strcspn(path, "\n")] = 0;
 
-                int time_difference = current_time-time_last_accessed;
-                printf("TIME DIFFERENCE IS: %d\n", time_difference);
-                if(time_difference > timeout){
-                    printf("THIS FILE IS EXPIRED\n");
-                    // we then want to remove the file from cached
-                    if(remove(transformed_name) != 0){
-                        error("Could not remove expired file from cache\n");
-                    }
-
-                }
                 // now we actually need to read and then send file
                 if(strcmp(path, transformed_name + 7) == 0){
                     // return the cached file and update timestamp
-                    printf("FOUND MATCH IN CACHE\n");
-                    found_match = 1;
-
-                    // first send HTTP 200 OK Header
-
-                    // we actually already have a function for this
-                    FILE* send_cached_fp;
-                    send_cached_fp = fopen(transformed_name, "r");
+                    printf("FOUND MATCH IN CACHE, NOW CHECKING TO SEE IF EXPIRED\n");
                     
-                    fseek(send_cached_fp, 0L, SEEK_END);
-                    int filesize = ftell(send_cached_fp);
-                    fseek(send_cached_fp, 0L, SEEK_SET);
+                    struct stat last_accessed;
+                    stat(transformed_name, &last_accessed);
+                    time_t time_last_accessed = mktime(localtime(&last_accessed.st_atime));
+                    time_t current_time = time(NULL);
 
-                    int num_sends = filesize/FILE_SIZE_PART + ((filesize % FILE_SIZE_PART) != 0); 
-                    char file_contents[FILE_SIZE_PART];
+                    printf("Time file accessed: %ld\t\tCurrent time: %ld\n", time_last_accessed, current_time);
+                    int time_difference = current_time-time_last_accessed;
+                    printf("TIME DIFFERENCE IS: %d\n", time_difference);
+                    if(time_difference > timeout){
+                        printf("THIS FILE IS EXPIRED\n");
+                        // we then want to remove the file from cached
+                        if(remove(transformed_name) != 0){
+                            error("Could not remove expired file from cache\n");
+                        }
 
-                    for(int i=0; i < num_sends; i++){
-                        bzero(file_contents, FILE_SIZE_PART);
-                        int n = fread(file_contents, FILE_SIZE_PART, 1, send_cached_fp);
-                        if(n < 0){
-                            error("Error on reading file into buffer\n");
-                        }
-                        // just send remaining bytes
-                        if(i == num_sends-1){
-                            send(fd, file_contents, filesize % REQUEST_SIZE, 0);
-                        }
-                        else{
-                            send(fd, file_contents, REQUEST_SIZE, 0);
-                        } 
                     }
 
-                    fclose(send_cached_fp);
+                    else{
+                        printf("THIS FILE IS NOT EXPIRED, SERVING FILE\n");
+                        found_match = 1;
 
+                        FILE* send_cached_fp;
+                        send_cached_fp = fopen(transformed_name, "r");
+                        
+                        fseek(send_cached_fp, 0L, SEEK_END);
+                        int filesize = ftell(send_cached_fp);
+                        fseek(send_cached_fp, 0L, SEEK_SET);
 
+                        int num_sends = filesize/FILE_SIZE_PART + ((filesize % FILE_SIZE_PART) != 0); 
+                        char file_contents[FILE_SIZE_PART];
+
+                        for(int i=0; i < num_sends; i++){
+                            bzero(file_contents, FILE_SIZE_PART);
+                            int n = fread(file_contents, FILE_SIZE_PART, 1, send_cached_fp);
+                            if(n < 0){
+                                error("Error on reading file into buffer\n");
+                            }
+                            // just send remaining bytes
+                            if(i == num_sends-1){
+                                send(fd, file_contents, filesize % REQUEST_SIZE, 0);
+                            }
+                            else{
+                                send(fd, file_contents, REQUEST_SIZE, 0);
+                            } 
+                        }
+                        fclose(send_cached_fp);
+                    }
                 }
+                
+
             }
             fclose(cache_fp);
 
