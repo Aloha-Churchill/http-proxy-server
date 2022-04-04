@@ -4,9 +4,14 @@ HTTP proxy server
 Questions:
 - Testing when browser defaults to https vs http
 - Do we only want to cache plain text?
+- If we already have name in cache, do we prefetch again? Let's assume that only if the requested
+page is not in the cache, then we have to prefetch everything, otherwise things are already prefetched.
+- file access time is not being modified by opening and reading from it
+
 
 Testing website
 http://www.testingmcafeesites.com/index.html
+
 */
 
 #include "helpers.h"
@@ -43,7 +48,6 @@ void handle_client(int fd, int port, int timeout) {
     // the http_buf gets modified by parsed commands, so need preserved_buffer
     char preserved_http_buf[REQUEST_SIZE];
     bzero(preserved_http_buf, REQUEST_SIZE);
-
     memcpy(preserved_http_buf, http_buf, REQUEST_SIZE);
     
     printf("Recieved: %s\n", http_buf);
@@ -102,35 +106,43 @@ void handle_client(int fd, int port, int timeout) {
 
             // loop through cached directory to find hit, delete files that are expired
             while(fgets(path, PATHNAME_SIZE, cache_fp) != NULL){
-                // if there is a cache hit
+                // full cached path name
+                char full_cached_path_name[PATHNAME_SIZE];
+                bzero(full_cached_path_name, PATHNAME_SIZE);
 
-                printf("REQUESTED NAME: %s \t\t PATH NAME: %s\n", transformed_name + 7, path);
+                // if there is a cache hit
                 path[strcspn(path, "\n")] = 0;
 
-                // now we actually need to read and then send file
-                if(strcmp(path, transformed_name + 7) == 0){
-                    // return the cached file and update timestamp
-                    printf("FOUND MATCH IN CACHE, NOW CHECKING TO SEE IF EXPIRED\n");
-                    
-                    struct stat last_accessed;
-                    stat(transformed_name, &last_accessed);
-                    time_t time_last_accessed = mktime(localtime(&last_accessed.st_atime));
-                    time_t current_time = time(NULL);
+                strcpy(full_cached_path_name, "cached/");
+                strcat(full_cached_path_name, path);
 
-                    printf("Time file accessed: %ld\t\tCurrent time: %ld\n", time_last_accessed, current_time);
-                    int time_difference = current_time-time_last_accessed;
-                    printf("TIME DIFFERENCE IS: %d\n", time_difference);
-                    if(time_difference > timeout){
-                        printf("THIS FILE IS EXPIRED\n");
-                        // we then want to remove the file from cached
-                        if(remove(transformed_name) != 0){
-                            error("Could not remove expired file from cache\n");
-                        }
+                printf("REQUESTED NAME: %s \t\t PATH NAME: %s\n", transformed_name + 7, path);
+                struct stat last_accessed;
+                struct utimbuf new_times;
 
+                stat(full_cached_path_name, &last_accessed);
+                time_t time_last_accessed = mktime(localtime(&last_accessed.st_atime));
+                time_t current_time = time(NULL);
+
+                printf("Time file accessed: %ld\t\tCurrent time: %ld\n", time_last_accessed, current_time);
+                int time_difference = current_time-time_last_accessed;
+                printf("TIME DIFFERENCE IS: %d\n", time_difference);
+                if(time_difference > timeout){
+                    printf("THIS FILE IS EXPIRED\n");
+                    // we then want to remove the file from cached
+                    if(remove(path) != 0){
+                        error("Could not remove expired file from cache\n");
                     }
 
-                    else{
-                        printf("THIS FILE IS NOT EXPIRED, SERVING FILE\n");
+                }
+                else{
+                    // now we actually need to read and then send file
+                    if(strcmp(path, transformed_name + 7) == 0){
+                        printf("FOUND UNEXPIRED MATCH IN CACHE, NOW CHECKING TO SEE IF EXPIRED\n");
+                        // we also need to update timestamp of cached file --> LETS FIRST TEST 
+                        new_times.actime = time(NULL);
+                        utime(transformed_name, &new_times);
+
                         found_match = 1;
 
                         FILE* send_cached_fp;
@@ -158,15 +170,18 @@ void handle_client(int fd, int port, int timeout) {
                             } 
                         }
                         fclose(send_cached_fp);
+                        
                     }
+                    
                 }
                 
 
             }
             fclose(cache_fp);
 
+            // if file was not found in the cache
+            // we want to create another process to prefetch all of the links of the webpage
             if(found_match == 0){
-
                 printf("DID NOT FIND NAME IN CACHE, SENDING FILE AND CREATING CACHE ENTRY\n");
                 // creating socket for host
                 int sockfd_host = -1;
