@@ -37,6 +37,43 @@ void md5hash(char* original_name, char* transformed_name){
 
 }
 
+void get_content_type(char* pathname, char* content_type){
+
+	const char delimiters[] = ".";
+	char* element = strtok(strrev(pathname), delimiters);
+	element = strrev(element);
+
+	if(element == NULL){
+		error("Not a valid file format\n");
+	}
+	else{
+		if(strcmp(element, "html") == 0){
+			strcpy(content_type, "Content-Type: text/html");
+		}
+		else if(strcmp(element, "txt") == 0){
+			strcpy(content_type, "Content-Type: text/plain");	
+		}
+		else if(strcmp(element, "png") == 0){
+			strcpy(content_type, "Content-Type: image/png");
+		}
+		else if(strcmp(element, "gif") == 0){
+			strcpy(content_type, "Content-Type: image/gif");
+		}
+		else if(strcmp(element, "jpg") == 0){
+			strcpy(content_type, "Content-Type: image/jpg");
+		}
+		else if(strcmp(element, "css") == 0){
+			strcpy(content_type, "Content-Type: text/css");
+		}
+		else if(strcmp(element, "js") == 0){
+			strcpy(content_type, "Content-Type: application/javascript");
+		}
+        else{
+            strcpy(content_type, "Content-Type: unsupported");
+        }
+    }
+}
+
 
 int checkCache(char* transformed_name, int timeout, int fd){
     // if we already have requested page in cache
@@ -209,11 +246,21 @@ void handle_client(int fd, int port, int timeout) {
                 strcat(http_transformed_request, parsed_commands[1]);
                 strcat(http_transformed_request, " ");
                 strcat(http_transformed_request, parsed_commands[2]);
+                strcat(http_transformed_request, "\r\n");
+                strcat(http_transformed_request, "Host: ");
+                strcat(http_transformed_request, parsed_commands[4]);
+                strcat(http_transformed_request, "\r\n");
+
+                char content_type[PATHNAME_SIZE];
+                bzero(content_type, PATHNAME_SIZE);
+                get_content_type(parsed_commands[1], content_type);
+
+                strncat(http_transformed_request, content_type, strlen(content_type)); //modify this to also accept other types of content
                 strcat(http_transformed_request, "\r\n\r\n");
 
                 printf("HTTP REQUEST SENDING: %s\n", http_transformed_request);
                 send(sockfd_host, http_transformed_request, strlen(http_transformed_request), 0);
-                
+               
                 // creating file for cache
                 FILE* create_fp;
                 create_fp = fopen(transformed_name, "w");

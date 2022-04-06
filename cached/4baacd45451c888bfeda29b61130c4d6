@@ -1,0 +1,31 @@
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 545
+Connection: keep-alive
+Last-Modified: Wed, 26 Jan 2011 17:55:08 GMT
+Accept-Ranges: bytes
+ETag: "0264c2b82bdcb1:0"
+Server: Microsoft-IIS/8.5
+X-Powered-By: ASP.NET
+SN: LMINIWEB02
+Date: Wed, 06 Apr 2022 19:58:24 GMT
+
+<html>
+	<head>
+		<title>URL for testing - Category Consumer Protection</title>
+	</head>
+
+	<body>
+		<code>
+			http://www.testingmcafeesites.com/testcat_cp.html<br>
+			<br>
+
+			This is an example URL which should be categorized as a Consumer Protection website with a low risk reputation score.<br>
+			This page simply displays this text without any specific content on it, it is just for testing purpose.<br>
+			<br>
+			<b>If you can see this text, it was not blocked by any filter!</b><br>
+			<br>
+		</code>
+	</body>
+
+</html>
