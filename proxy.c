@@ -11,11 +11,14 @@ page is not in the cache, then we have to prefetch everything, otherwise things 
 
 Testing website
 http://www.testingmcafeesites.com/index.html
+http://www.softwareqatest.com/qatweb1.html 
+***********************************Need to test blocklist a little bit more also**********************
+Also want to clean up code, modularize after finished.
+
+Currently, problem is in caching file
 
 */
-
 #include "helpers.h"
-
 
 void transform_cached_name(char* original_name, char* transformed_name){
 
@@ -29,6 +32,26 @@ void transform_cached_name(char* original_name, char* transformed_name){
             transformed_name[i+7] = original_name[i];
         }
     }
+
+}
+
+void md5hash(char* original_name, char* transformed_name){
+    MD5_CTX c;
+
+    // change these to correct numbers (instead of 256) find out many characters of
+    // the output of MD5 is.
+
+    unsigned char out[MD5_DIGEST_LENGTH];
+
+    MD5_Init(&c);
+    MD5_Update(&c, original_name, strlen(original_name));
+    MD5_Final(out, &c);
+
+    int n;
+    for(n=0; n<MD5_DIGEST_LENGTH; ++n){
+        sprintf(&transformed_name[n*2], "%02x", (unsigned int)out[n]);
+    }
+
 
 }
 
@@ -73,7 +96,8 @@ void handle_client(int fd, int port, int timeout) {
         server_hints.ai_socktype = SOCK_STREAM;
         
         //check if server hostname was found using getaddrinfo
-        int ret = getaddrinfo(parsed_commands[4], "80", &server_hints, &res);
+
+        int ret = getaddrinfo(parsed_commands[4], "http", &server_hints, &res);
 
         // if host name is invalid
         if(ret != 0){
@@ -85,7 +109,6 @@ void handle_client(int fd, int port, int timeout) {
 
         // if host name is valid
         else{
-
             // if we already have requested page in cache
             FILE* cache_fp;
             char path[PATHNAME_SIZE];
@@ -96,27 +119,27 @@ void handle_client(int fd, int port, int timeout) {
                 error("Could not open cache\n");
             }
 
-            char transformed_name[PATHNAME_SIZE];
-            bzero(transformed_name, PATHNAME_SIZE);
-
-            transform_cached_name(parsed_commands[1], transformed_name);
+            // transformed name is where hash of url is stored
+            char transformed_name[33+7];
+            bzero(transformed_name, 33+7);
+            strcpy(transformed_name, "cached/");
+            md5hash(parsed_commands[1], transformed_name+7);
             printf("TRANSFORMED NAME: %s\n", transformed_name);
 
+    
             int found_match = 0;
 
             // loop through cached directory to find hit, delete files that are expired
             while(fgets(path, PATHNAME_SIZE, cache_fp) != NULL){
-                // full cached path name
+
+                // creating full cached name
                 char full_cached_path_name[PATHNAME_SIZE];
                 bzero(full_cached_path_name, PATHNAME_SIZE);
-
-                // if there is a cache hit
                 path[strcspn(path, "\n")] = 0;
-
                 strcpy(full_cached_path_name, "cached/");
                 strcat(full_cached_path_name, path);
 
-                printf("REQUESTED NAME: %s \t\t PATH NAME: %s\n", transformed_name + 7, path);
+                printf("REQUESTED NAME: %s\nPATH NAME: %s\n", transformed_name, full_cached_path_name);
                 struct stat last_accessed;
                 struct utimbuf new_times;
 
@@ -130,15 +153,14 @@ void handle_client(int fd, int port, int timeout) {
                 if(time_difference > timeout){
                     printf("THIS FILE IS EXPIRED\n");
                     // we then want to remove the file from cached
-                    if(remove(path) != 0){
+                    if(remove(full_cached_path_name) != 0){
                         error("Could not remove expired file from cache\n");
                     }
-
                 }
                 else{
                     // now we actually need to read and then send file
-                    if(strcmp(path, transformed_name + 7) == 0){
-                        printf("FOUND UNEXPIRED MATCH IN CACHE, NOW CHECKING TO SEE IF EXPIRED\n");
+                    if(strcmp(transformed_name, full_cached_path_name) == 0){
+                        printf("FOUND UNEXPIRED MATCH IN CACHE\n");
                         // we also need to update timestamp of cached file --> LETS FIRST TEST 
                         new_times.actime = time(NULL);
                         utime(transformed_name, &new_times);
@@ -183,6 +205,7 @@ void handle_client(int fd, int port, int timeout) {
             // we want to create another process to prefetch all of the links of the webpage
             if(found_match == 0){
                 printf("DID NOT FIND NAME IN CACHE, SENDING FILE AND CREATING CACHE ENTRY\n");
+                
                 // creating socket for host
                 int sockfd_host = -1;
 
@@ -207,9 +230,6 @@ void handle_client(int fd, int port, int timeout) {
                     error("Send to host failed\n");
                 }
                 
-                char recvbuf[REQUEST_SIZE];
-                bzero(recvbuf, REQUEST_SIZE);
-
                 // creating file for cache
                 FILE* create_fp;
 
@@ -220,25 +240,67 @@ void handle_client(int fd, int port, int timeout) {
                 }
 
                 //recv returns -1 on error, 0 if closed connection, or number of bytes read into buffer
-                int recv_res = recv(sockfd_host, recvbuf, REQUEST_SIZE, 0) < 0;
-                printf("RECIEVED FROM HOST result: %s\n", recvbuf);
-                if(recv_res < 0){
-                    error("Recieve from host failed\n");
+                int num_bytes;
+                char recvbuf[REQUEST_SIZE];
+                bzero(recvbuf, REQUEST_SIZE);
+                int num_recv = 0;
+
+                while((num_bytes = recv(sockfd_host, recvbuf, REQUEST_SIZE-1, 0)) > 0){
+
+                    printf("RECIEVED %d BYTES FROM HOST\n", num_bytes);
+                    printf("RECIEVED FROM HOST result: \n%s\n", recvbuf);
+                    
+                    if(send(fd, recvbuf, num_bytes, 0) < 0){
+                        error("Send to client failed\n");
+                    }
+
+                    if(fwrite(recvbuf, num_bytes, 1, create_fp) < 0){
+                        error("Could not write to cached file\n");
+                    }
+                    bzero(recvbuf, REQUEST_SIZE);
+                    num_recv += 1;
+                    printf("NUMBER OF RECIEVES: %d\n", num_recv);
+                }
+                if(num_bytes < 0){
+                    error("Recv failed\n");
                 }
 
-                if(send(fd, recvbuf, REQUEST_SIZE, 0) < 0){
-                    error("Send to client failed\n");
-                }
-
-                if(fwrite(recvbuf, REQUEST_SIZE, 1, create_fp) < 0){
-                    error("Could not write to cached file\n");
-                }
 
                 
                 fclose(create_fp);
                 // then we want to send what we just recieved in the proxy to the original client
                 freeaddrinfo(res);
                 close(sockfd_host);
+
+                /*
+                if(!fork()){
+                    // parsing document to find urls and then fetching webpages
+                    printf("INSIDE OF CHILD PROCESS\n");
+                    FILE* url_fp;
+                    url_fp = fopen(transformed_name, "r");
+
+                    fseek(url_fp, 0L, SEEK_END);
+                    int filesize = ftell(url_fp);
+                    fseek(url_fp, 0L, SEEK_SET);
+
+                    char* file_buf = (char*) malloc(filesize);
+                    fread(file_buf, filesize, 1, url_fp);
+                    fclose(url_fp);
+
+                    printf("Contents: %s\n", file_buf);
+
+                    char* href = "href";
+                    char* occurrence = strstr(file_buf, href);
+                    int position = occurrence - href;
+
+                    printf("Position: %d\n", position);
+                    printf("Occurrence: %s\n", occurrence);
+
+                    free(file_buf);
+                    
+                    exit(0);
+                }
+                */
             }
 
         }
@@ -336,5 +398,4 @@ int main(int argc, char **argv) {
     // if user types Ctrl+C, server shuts down
     signal(SIGINT, exit_handler);
     start_server(&server_fd, port, timeout);
-
 }

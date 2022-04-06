@@ -16,9 +16,10 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <utime.h>
+#include <openssl/md5.h>
 
 #define REQUEST_SIZE 4000 // handle first 4000 bytes of request
-#define PATHNAME_SIZE 256
+#define PATHNAME_SIZE 512
 #define FILE_SIZE_PART 1024 // send files in 1024 size increments
 #define BACKLOG 1024
 
