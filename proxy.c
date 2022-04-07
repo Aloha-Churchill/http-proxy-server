@@ -10,12 +10,31 @@ page is not in the cache, then we have to prefetch everything, otherwise things 
 
 
 Testing website
-http://www.testingmcafeesites.com/index.html
-http://www.softwareqatest.com/qatweb1.html 
 ***********************************Need to test blocklist a little bit more also**********************
 Also want to clean up code, modularize after finished.
 
 Currently, problem is in caching file --> not writing to file correctly
+
+
+
+NEED TO PROCESS PORT NUMBER CORRECTLY
+Recieved: GET http://localhost:8888/index.html HTTP/1.1 --> need to take off port number
+User-Agent: Wget/1.20.3 (linux-gnu)
+Accept:
+Accept-Encoding: identity
+Host: localhost:8888 --> need to rip off port number here
+
+============ TESTING =============
+http_proxy=localhost:8080 wget -m http://localhost:8888/index.html
+mv localhost\:8888/ localhost.old
+http_proxy=localhost:8080 wget -m http://localhost:8888/index.html
+diff -r localhost.old localhost\:8888
+diff localhost\:8888/ University/2022Spring/Networks/PA2/www
+
+
+URGENT: Still need to fix blocklist to convert everything to ip or domain name
+
+
 
 */
 #include "helpers.h"
@@ -133,6 +152,27 @@ int checkCache(char* transformed_name, int timeout, int fd){
             int filesize = ftell(send_cached_fp);
             fseek(send_cached_fp, 0L, SEEK_SET);
 
+
+            //taking the ceiling of file_length/FILE_SIZE_PART to find how many sends
+            int num_sends = filesize/FILE_SIZE_PART + ((filesize % FILE_SIZE_PART) != 0); 
+            char file_contents[FILE_SIZE_PART];
+
+            for(int i=0; i < num_sends; i++){
+                bzero(file_contents, FILE_SIZE_PART);
+                int n = fread(file_contents, FILE_SIZE_PART, 1, send_cached_fp);
+                if(n < 0){
+                    error("Error on reading file into buffer\n");
+                }
+                // just send remaining bytes
+                if(i == num_sends-1){
+                    send_all(fd, file_contents, filesize % FILE_SIZE_PART);
+                }
+                else{
+                    send_all(fd, file_contents, FILE_SIZE_PART);
+                } 
+            }
+
+            /*
             char* file_contents = (char*) malloc(filesize);
             int n = fread(file_contents, filesize, 1, send_cached_fp);
 
@@ -144,6 +184,8 @@ int checkCache(char* transformed_name, int timeout, int fd){
 
             send(fd, file_contents, filesize, 0);
             free(file_contents);
+            */
+
             printf("DONE SENDING FILE\n");
             fclose(send_cached_fp);
             fclose(cache_fp);
@@ -166,6 +208,8 @@ void handle_client(int fd, int port, int timeout) {
     char http_buf[REQUEST_SIZE];
     bzero(http_buf, REQUEST_SIZE);
 
+
+    // CHANGE THIS TO ONLY RECV ONE BYTE AT A TIME
     //recv returns -1 on error, 0 if closed connection, or number of bytes read into buffer
     if(recv(fd, http_buf, REQUEST_SIZE, 0) < 0){
         error("Recieve failed\n");
@@ -178,15 +222,20 @@ void handle_client(int fd, int port, int timeout) {
     
     printf("Recieved: %s\n", http_buf);
 
-    // parse request into 4 parts [[method],[url],[http version],[Host:],[requested host]]
+    // parse request into 4 parts [[method],[uri],[http version],[requested host]]
     char* parsed_commands[5];
-    int num_parsed = parse_commands(http_buf, parsed_commands);
+    int num_parsed = parse_commands_V2(http_buf, parsed_commands);
+
+
+    for(int i = 0; i<5; i++){
+        printf("ENTRY: %s\n", parsed_commands[i]);
+    }
 
     // get full pathname of file
     char pathname[PATHNAME_SIZE];
     bzero(pathname, PATHNAME_SIZE);
 
-    // check iif request is ok
+    // check if request is ok
     int hostname_exists = -1;
     struct addrinfo *res = NULL;
     struct addrinfo server_hints;
@@ -196,9 +245,21 @@ void handle_client(int fd, int port, int timeout) {
     server_hints.ai_family = AF_UNSPEC;
     server_hints.ai_socktype = SOCK_STREAM;
     
-    //check if server hostname was found using getaddrinfo
-    int ret = getaddrinfo(parsed_commands[4], "http", &server_hints, &res);
 
+    // check if server hostname was found using getaddrinfo
+    int ret;
+    if(parsed_commands[4] == NULL){
+        printf("Port number unspecified\n");
+        ret = getaddrinfo(parsed_commands[3], "http", &server_hints, &res);
+    }
+    else{
+        printf("Port number specified: %s\n", parsed_commands[4]);
+        ret = getaddrinfo(parsed_commands[3], parsed_commands[4], &server_hints, &res);
+    }
+
+    printf("IP ADDR: %s\n", res->ai_addr->sa_data);
+    
+    
     // if host name is invalid
     if(ret != 0){
         printf("Address was INVALID\n");
@@ -210,17 +271,24 @@ void handle_client(int fd, int port, int timeout) {
         hostname_exists = 0;
     }
 
+    printf("PARSED COMMANDS 1: %s\n", parsed_commands[1]);
+
     // check if request is okay, if so, then we check if file is valid
+    
     if(check_request(fd, parsed_commands, num_parsed) != -1){
+
+        printf("PARSED COMMANDS 1: %s\n", parsed_commands[1]);
 
         if(hostname_exists == 0){
 
             // transformed name is where hash of url is stored
+            char* copy_uri = strdup(parsed_commands[1]);
             char transformed_name[33+7];
             bzero(transformed_name, 33+7);
             strcpy(transformed_name, "cached/");
             md5hash(parsed_commands[1], transformed_name+7);
             printf("TRANSFORMED NAME: %s\n", transformed_name);
+            printf("POST HASH PARSED COMMANDS 1: %s\n", copy_uri);  
 
             // if file is not in cache
             if(checkCache(transformed_name, timeout, fd) == -1){
@@ -234,28 +302,34 @@ void handle_client(int fd, int port, int timeout) {
                     error("Could not create socket");
                 }
 
-                // maybe need to setsockopt
                 if(connect(sockfd_host, res->ai_addr, res->ai_addrlen) == -1){
                     close(sockfd_host);
                     error("Could not connect to host\n");
                 }
 
+
                 char http_transformed_request[REQUEST_SIZE];
                 bzero(http_transformed_request, REQUEST_SIZE);
                 strcpy(http_transformed_request, "GET ");
-                strcat(http_transformed_request, parsed_commands[1]);
+                strcat(http_transformed_request, copy_uri);
                 strcat(http_transformed_request, " ");
                 strcat(http_transformed_request, parsed_commands[2]);
                 strcat(http_transformed_request, "\r\n");
                 strcat(http_transformed_request, "Host: ");
-                strcat(http_transformed_request, parsed_commands[4]);
+                strcat(http_transformed_request, parsed_commands[3]);
                 strcat(http_transformed_request, "\r\n");
 
+    
+                // this part is not currently working
                 char content_type[PATHNAME_SIZE];
                 bzero(content_type, PATHNAME_SIZE);
-                get_content_type(parsed_commands[1], content_type);
+
+                printf("Before get content type\n");
+                get_content_type(copy_uri, content_type);
+                printf("Content type: %s\n", content_type);
 
                 strncat(http_transformed_request, content_type, strlen(content_type)); //modify this to also accept other types of content
+                //strcat(http_transformed_request, "Content-Type: text/html"); 
                 strcat(http_transformed_request, "\r\n\r\n");
 
                 printf("HTTP REQUEST SENDING: %s\n", http_transformed_request);
@@ -270,11 +344,65 @@ void handle_client(int fd, int port, int timeout) {
                 }
 
                 //recv returns -1 on error, 0 if closed connection, or number of bytes read into buffer
-                int num_bytes;
+                // we first need to recieve return header, write this into file, and then get the content length and do the proper number of recvs based on this
+                
+
+                char recv_header[REQUEST_SIZE];
+                bzero(recv_header, REQUEST_SIZE);
+
                 char recvbuf[REQUEST_SIZE];
                 bzero(recvbuf, REQUEST_SIZE);
+
+                //int num_bytes;
                 int num_written;
 
+                int n = 0;
+                int header_terminated = 0;
+                while(header_terminated == 0){
+                    recv(sockfd_host, recv_header + n, 1, 0);
+                    n += 1;
+                    if(strstr(recv_header, "\r\n\r\n") || strstr(recv_header, "\n\n")){
+                        header_terminated = 1;  
+                    }
+                }
+
+                char* content_length_string = strstr(recv_header, "Content-Length: ");
+                content_length_string[strcspn(content_length_string, "\n")] = 0;
+                int content_length = atoi(content_length_string + 16);
+
+                printf("CONTENT LENGTH: %s\n", content_length_string);
+                printf("CONTENT LENGTH INT: %d\n", content_length);
+
+
+                //taking the ceiling of file_length/FILE_SIZE_PART to find how many sends
+                int num_sends = content_length/FILE_SIZE_PART + ((content_length % FILE_SIZE_PART) != 0); 
+                char file_contents[FILE_SIZE_PART];
+
+                for(int i=0; i < num_sends; i++){
+                    bzero(file_contents, FILE_SIZE_PART);
+
+                    int n = recv(sockfd_host, file_contents, FILE_SIZE_PART, 0);
+                    if(n < 0){
+                        error("Error on recv\n");
+                    }
+
+                    if(send(fd, file_contents, n, 0) < 0){
+                        error("Send to client failed\n");
+                    }
+
+                    // maybe need while loop again
+                    num_written = fwrite(file_contents, 1, n, create_fp);
+                    if(num_written < 0){
+                        error("Could not write to cached file\n");
+                    }
+
+                }
+
+                fclose(create_fp);
+                freeaddrinfo(res);
+                close(sockfd_host);
+
+                /*
                 num_bytes = recv(sockfd_host, recvbuf, REQUEST_SIZE-1, 0);
                 if(num_bytes < 0){
                     error("Recv failed\n");
@@ -288,6 +416,7 @@ void handle_client(int fd, int port, int timeout) {
                     error("Send to client failed\n");
                 }
 
+                // maybe need while loop again
                 num_written = fwrite(recvbuf, 1, num_bytes, create_fp);
                 if(num_written < 0){
                     error("Could not write to cached file\n");
@@ -299,10 +428,9 @@ void handle_client(int fd, int port, int timeout) {
                 if(num_bytes < 0){
                     error("Recv failed\n");
                 }
+                */
 
-                fclose(create_fp);
-                freeaddrinfo(res);
-                close(sockfd_host);
+
 
             }
 
@@ -402,31 +530,6 @@ int main(int argc, char **argv) {
     signal(SIGINT, exit_handler);
     start_server(&server_fd, port, timeout);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
                 /*

@@ -18,7 +18,7 @@
 #include <utime.h>
 #include <openssl/md5.h>
 
-#define REQUEST_SIZE 4000 // handle first 4000 bytes of request
+#define REQUEST_SIZE 1000 // handle first 4000 bytes of request
 #define PATHNAME_SIZE 512
 #define FILE_SIZE_PART 1024 // send files in 1024 size increments
 #define BACKLOG 1024
@@ -80,28 +80,80 @@ int send_all(int fd, char* send_buf, int size){
 	return n;	
 }
 
-
 /*
 Parses recieved string into 3 distinct parts
 */
-int parse_commands(char* recvbuf, char* parsed_commands[]){
+int parse_commands_V2(char* recvbuf, char* parsed_commands[]){
 
-	//strtok replaces delimiter with null terminator then continues to search for next string
+    // [GET] [URI] [HTTP_VERSION] [HOST] [PORT]
+
 	const char delimiters[] = " \r\n";
 	char* element = strtok(recvbuf, delimiters);
 	int num_input_strings = 0;
+    int host_index = -1;
+    char* full_hostname;
+    char* address;
 
 	while(element != NULL){
-		if(num_input_strings < 5){
-			parsed_commands[num_input_strings] = element;
-		}
+        if(num_input_strings < 3){
+            if(num_input_strings == 1){
+                address = element;
+            }
+            else{
+                parsed_commands[num_input_strings] = element;
+            }
+            
+        }
+        if(strcmp(element, "Host:") == 0){
+            host_index = num_input_strings + 1;
+        }
+        if(num_input_strings == host_index){
+            full_hostname = element;
+        }
 		element = strtok(NULL, delimiters);
 		num_input_strings += 1;
 	}
 
+	char* i = strtok(full_hostname, ":");
+    int n = 3;
+    
+	while(i != NULL){
+        parsed_commands[n] = i;
+		i = strtok(NULL, delimiters);
+        n += 1;
+	}
+
+    // if a port number is specified
+    if(n == 5){
+        char modified_hostname[PATHNAME_SIZE];
+        bzero(modified_hostname, PATHNAME_SIZE);
+
+        
+        /*
+        int offset = strlen("http://") + strlen(parsed_commands[3]);
+        int port_len = strlen(parsed_commands[4]);
+        strncpy(modified_hostname, address, offset);
+        strcat(modified_hostname, address + offset + port_len + 1);
+        
+        parsed_commands[1] = modified_hostname;
+        */
+
+        int offset = strlen("http://") + strlen(parsed_commands[3]) + strlen(parsed_commands[4])+ 1;
+        strcpy(modified_hostname, address + offset);
+        parsed_commands[1] = modified_hostname;
+        printf("Modified host name: %s\n", parsed_commands[1]);  
+
+    }
+    else{
+        parsed_commands[1] = address;
+        parsed_commands[4] = NULL;
+    }
+
     return num_input_strings;
 
 }
+
+
 
 /*
 Checks if user entered in valid request. Default to HTTP/1.1 upon malformed request.
@@ -111,12 +163,15 @@ We also need to check if hostname is ok, use getaddrinfo and it should return an
 */
 int check_request(int fd, char* parsed_commands[], int num_input_strings){
     // malformed request, user did not enter in enough commands
+    
+    
     if(num_input_strings < 3){
         dprintf(fd, "HTTP/1.1 400 Bad Request\r\n");
         dprintf(fd, "Content-Type: \r\n");
         dprintf(fd, "Content-Length: \r\n\r\n");
         return -1;
     }
+
 
     // user entered in incorrect method
     if(strcmp(parsed_commands[0], "GET") != 0){
@@ -134,7 +189,9 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
         return -1;		
 	}
 
+
     // check if request is in blocklist
+    /*
     FILE* blocklist_fp;
     char* entry = NULL;
     size_t len = 0;
@@ -150,9 +207,9 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
 
     while((read = getline(&entry, &len, blocklist_fp)) != -1){
         printf("Blocklist entry: %s\n", entry);
-        printf("Parsed commands entry: %s\n", parsed_commands[4]);
+        printf("Parsed commands entry: %s\n", parsed_commands[3]);
 
-        if(strncmp(entry, parsed_commands[4], strlen(parsed_commands[4])-1) == 0){
+        if(strncmp(entry, parsed_commands[3], strlen(parsed_commands[3])-1) == 0){
             printf("RECIEVED BLOCKED COMMAND\n");
             dprintf(fd, "HTTP/1.1 403 Forbidden\r\n");
             dprintf(fd, "Content-Type: \r\n");
@@ -162,7 +219,9 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
 
     }
 
+    printf("5 PARSED COMMANDS 1: %s\n", parsed_commands[1]);
     fclose(blocklist_fp);
+    */
 
     return 0;
 }
@@ -224,42 +283,4 @@ char *strrev(char *str)
 }
 
 
-/*
-Sends the file.
-1. Gets file length
-2. Gets file type
-3. Sends file in increments
-*/
 
-/*
-int send_file(int fd, char* pathname, char* http_version){
-
-    // get file length
-	int file_length;
-	FILE* fp;
-
-    fseek(fp, 0, SEEK_SET);
-
-    //taking the ceiling of file_length/FILE_SIZE_PART to find how many sends
-    int num_sends = file_length/FILE_SIZE_PART + ((file_length % FILE_SIZE_PART) != 0); 
-    char file_contents[FILE_SIZE_PART];
-
-    for(int i=0; i < num_sends; i++){
-        bzero(file_contents, FILE_SIZE_PART);
-        int n = fread(file_contents, FILE_SIZE_PART, 1, fp);
-        if(n < 0){
-            error("Error on reading file into buffer\n");
-        }
-        // just send remaining bytes
-        if(i == num_sends-1){
-            send_all(fd, file_contents, file_length % FILE_SIZE_PART);
-        }
-        else{
-            send_all(fd, file_contents, FILE_SIZE_PART);
-        } 
-    }
-
-    fclose(fp);
-    return 0;
-}
-*/

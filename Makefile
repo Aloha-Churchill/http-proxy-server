@@ -2,7 +2,7 @@ COMPILER=gcc
 FLAGS=-g -Wall
 
 run: proxy
-	./proxy 8888 10
+	./proxy 8080 60
 
 all: proxy.c
 	$(COMPILER) $(FLAGS) -o proxy proxy.c -lcrypto -lssl
