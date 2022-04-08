@@ -128,16 +128,6 @@ int parse_commands_V2(char* recvbuf, char* parsed_commands[]){
         char modified_hostname[PATHNAME_SIZE];
         bzero(modified_hostname, PATHNAME_SIZE);
 
-        
-        /*
-        int offset = strlen("http://") + strlen(parsed_commands[3]);
-        int port_len = strlen(parsed_commands[4]);
-        strncpy(modified_hostname, address, offset);
-        strcat(modified_hostname, address + offset + port_len + 1);
-        
-        parsed_commands[1] = modified_hostname;
-        */
-
         int offset = strlen("http://") + strlen(parsed_commands[3]) + strlen(parsed_commands[4])+ 1;
         strcpy(modified_hostname, address + offset);
         parsed_commands[1] = modified_hostname;
@@ -153,7 +143,31 @@ int parse_commands_V2(char* recvbuf, char* parsed_commands[]){
 
 }
 
+// code from https://www.binarytides.com/hostname-to-ip-address-c-sockets-linux/
+int hostname_to_ip(char * hostname , char* ip)
+{
+	struct hostent *he;
+	struct in_addr **addr_list;
+	int i;
+		
+	if ( (he = gethostbyname( hostname ) ) == NULL) 
+	{
+		// get the host info
+		herror("gethostbyname");
+		return 1;
+	}
 
+	addr_list = (struct in_addr **) he->h_addr_list;
+	
+	for(i = 0; addr_list[i] != NULL; i++) 
+	{
+		//Return the first one;
+		strcpy(ip , inet_ntoa(*addr_list[i]) );
+		return 0;
+	}
+	
+	return 1;
+}
 
 /*
 Checks if user entered in valid request. Default to HTTP/1.1 upon malformed request.
@@ -190,8 +204,9 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
 	}
 
 
-    // check if request is in blocklist
-    /*
+    // check if request is in blocklist --> need to make sure this works with wget
+    
+    
     FILE* blocklist_fp;
     char* entry = NULL;
     size_t len = 0;
@@ -205,11 +220,24 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
         return 0;
     }
 
-    while((read = getline(&entry, &len, blocklist_fp)) != -1){
-        printf("Blocklist entry: %s\n", entry);
-        printf("Parsed commands entry: %s\n", parsed_commands[3]);
 
-        if(strncmp(entry, parsed_commands[3], strlen(parsed_commands[3])-1) == 0){
+    while((read = getline(&entry, &len, blocklist_fp)) != -1){
+
+        entry[strcspn(entry, "\n")] = 0;
+        // convert entry and parsed_commands to IP Address and then compare
+        char current_entry[PATHNAME_SIZE];
+        bzero(current_entry, PATHNAME_SIZE);
+
+        char search_entry[PATHNAME_SIZE];
+        bzero(search_entry, PATHNAME_SIZE);
+
+        hostname_to_ip(entry, current_entry);
+
+        // this is the problem ? maybe
+        hostname_to_ip(parsed_commands[3], search_entry);
+
+        
+        if(strcmp(current_entry, search_entry) == 0){
             printf("RECIEVED BLOCKED COMMAND\n");
             dprintf(fd, "HTTP/1.1 403 Forbidden\r\n");
             dprintf(fd, "Content-Type: \r\n");
@@ -219,10 +247,7 @@ int check_request(int fd, char* parsed_commands[], int num_input_strings){
 
     }
 
-    printf("5 PARSED COMMANDS 1: %s\n", parsed_commands[1]);
     fclose(blocklist_fp);
-    */
-
     return 0;
 }
 

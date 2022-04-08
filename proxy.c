@@ -35,8 +35,17 @@ diff localhost\:8888/ University/2022Spring/Networks/PA2/www
 URGENT: Still need to fix blocklist to convert everything to ip or domain name
 
 
+QUESTION: If we have port number, how do we transform GET request?
+QUESTION: Caching not working? --> How to test?
+QUESTION: wgets taking so long?
 
+- Test curl parallel
+- Also implement blocklist
+- Comment code
+- update readme
+- submit
 */
+
 #include "helpers.h"
 
 void md5hash(char* original_name, char* transformed_name){
@@ -172,19 +181,6 @@ int checkCache(char* transformed_name, int timeout, int fd){
                 } 
             }
 
-            /*
-            char* file_contents = (char*) malloc(filesize);
-            int n = fread(file_contents, filesize, 1, send_cached_fp);
-
-            printf("SENDING BACK TO CLIENT: \n %s \n", file_contents);
-
-            if(n < 0){
-                error("Error on reading file into buffer\n");
-            }
-
-            send(fd, file_contents, filesize, 0);
-            free(file_contents);
-            */
 
             printf("DONE SENDING FILE\n");
             fclose(send_cached_fp);
@@ -225,7 +221,8 @@ void handle_client(int fd, int port, int timeout) {
     // parse request into 4 parts [[method],[uri],[http version],[requested host]]
     char* parsed_commands[5];
     int num_parsed = parse_commands_V2(http_buf, parsed_commands);
-
+    char* copy_uri = strdup(parsed_commands[1]);
+    char* copy_copy_uri = strdup(parsed_commands[1]);
 
     for(int i = 0; i<5; i++){
         printf("ENTRY: %s\n", parsed_commands[i]);
@@ -260,7 +257,7 @@ void handle_client(int fd, int port, int timeout) {
     printf("IP ADDR: %s\n", res->ai_addr->sa_data);
     
     
-    // if host name is invalid
+    // if host name is invalid instead this should be NULL
     if(ret != 0){
         printf("Address was INVALID\n");
         dprintf(fd, "HTTP/1.1 404 Not Found\r\n");
@@ -271,22 +268,19 @@ void handle_client(int fd, int port, int timeout) {
         hostname_exists = 0;
     }
 
-    printf("PARSED COMMANDS 1: %s\n", parsed_commands[1]);
-
     // check if request is okay, if so, then we check if file is valid
-    
+    // 
     if(check_request(fd, parsed_commands, num_parsed) != -1){
-
-        printf("PARSED COMMANDS 1: %s\n", parsed_commands[1]);
 
         if(hostname_exists == 0){
 
             // transformed name is where hash of url is stored
-            char* copy_uri = strdup(parsed_commands[1]);
+            //char* copy_uri = strdup(parsed_commands[1]);
             char transformed_name[33+7];
             bzero(transformed_name, 33+7);
             strcpy(transformed_name, "cached/");
-            md5hash(parsed_commands[1], transformed_name+7);
+            md5hash(copy_copy_uri, transformed_name+7);
+            // md5hash(parsed_commands[1], transformed_name+7);
             printf("TRANSFORMED NAME: %s\n", transformed_name);
             printf("POST HASH PARSED COMMANDS 1: %s\n", copy_uri);  
 
@@ -366,6 +360,9 @@ void handle_client(int fd, int port, int timeout) {
                     }
                 }
 
+                send(fd, recv_header, n, 0);
+                fwrite(recv_header, 1, n, create_fp);
+
                 char* content_length_string = strstr(recv_header, "Content-Length: ");
                 content_length_string[strcspn(content_length_string, "\n")] = 0;
                 int content_length = atoi(content_length_string + 16);
@@ -374,6 +371,7 @@ void handle_client(int fd, int port, int timeout) {
                 printf("CONTENT LENGTH INT: %d\n", content_length);
 
 
+                
                 //taking the ceiling of file_length/FILE_SIZE_PART to find how many sends
                 int num_sends = content_length/FILE_SIZE_PART + ((content_length % FILE_SIZE_PART) != 0); 
                 char file_contents[FILE_SIZE_PART];
