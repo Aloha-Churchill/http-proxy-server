@@ -1,6 +1,5 @@
 COMPILER=gcc
 FLAGS=-g -Wall
-#RM_COMMAND := $(shell cd cached/ && rm -v !(README.md) && cd ..)
 
 run: proxy
 	./proxy 8080 10

@@ -1,11 +1,7 @@
 /*
 HTTP proxy server
 
-- Test curl parallel
-- test timeout
-- Comment code
-- update readme
-- submit
+Test with http://nginx.org/en/
 */
 
 #include "helpers.h"
@@ -37,6 +33,10 @@ void handle_client(int fd, int port, int timeout) {
     // need copies of the uri because passing to future functions changes the original
     char* copy_uri = strdup(parsed_commands[1]);
     char* copy_copy_uri = strdup(parsed_commands[1]);
+
+    for(int i=0; i< 5; i++){
+        printf("Parsed commands: %s\n", parsed_commands[i]);
+    }
 
     // get full pathname of file
     char pathname[PATHNAME_SIZE];
@@ -110,7 +110,9 @@ void handle_client(int fd, int port, int timeout) {
                 strcpy(http_transformed_request, "GET ");
                 strcat(http_transformed_request, copy_uri);
                 strcat(http_transformed_request, " ");
-                strcat(http_transformed_request, parsed_commands[2]);
+                //strcat(http_transformed_request, parsed_commands[2]);
+                //printf("parsed commands 2: %s\n", parsed_commands[2]);
+                strcat(http_transformed_request, "HTTP/1.0");
                 strcat(http_transformed_request, "\r\n");
                 strcat(http_transformed_request, "Host: ");
                 strcat(http_transformed_request, parsed_commands[3]);
